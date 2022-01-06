@@ -1,0 +1,308 @@
+---
+title: "LMMS CLR Trajectories"
+author: "Paul Nguyen"
+date: "21/12/2021"
+output: pdf_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(biomformat)
+library(dada2) 
+library(matR) 
+library(ggplot2) 
+library(tidyverse) 
+
+library(phyloseq); packageVersion("phyloseq")
+library(Biostrings); packageVersion("Biostrings")
+library(ggplot2); packageVersion("ggplot2")
+library(compositions) 
+library(timeOmics)
+library(lmms)
+library(stringi)
+library(purrr)
+
+#setting the correct directory 
+knitr::opts_knit$set(root.dir = '~/Desktop/Microbial Project/Reading 16s BIOM file 2/Data/all')
+```
+Assign the directory as where ever you keep the biom files ".../Data/all".  
+
+## Directory Assignment and Loading and merging the data 
+```{r, warning=FALSE}
+library(readr)
+extractor <- function(i){ 
+  temp <- as(biom_data(read_biom(i)),"matrix")
+  temp <- cbind(rownames(temp), temp)
+  rownames(temp) <- NULL 
+  colnames(temp)[1]<-'16S_SEQUENCE'
+  temp <- as.data.frame(temp)
+  return(temp)}
+
+#list of biom data
+lst <- lapply(list.files(), FUN=extractor) 
+
+#https://stackoverflow.com/questions/8091303/simultaneously-merge-multiple-data-frames-in-a-list
+#https://stackoverflow.com/questions/48699066/r-merge-list-of-three-dataframes-into-single-dataframe-with-id-in-first-column 
+x_merged <- lst %>% 
+  purrr::reduce(dplyr::full_join, by = "16S_SEQUENCE") %>% 
+  replace(., is.na(.), 0)
+
+print(paste0("There are ", dim(x_merged)[1], " rows of uniquely recorded microbiota."))
+```
+## Changing the directory to where the meta data txt files are kept. 
+```{r}
+setwd("~/Desktop/Microbial Project/Reading 16s BIOM file 2/Data/tsvs")
+
+#TSV are raw excel extracted data 
+df_tsv <- list.files() %>% 
+  lapply(function(i) {
+    read.csv(i,sep = "\t")})
+```
+The reason for the variety amount of \texttt{df_tsv}'s is for the purpose of debugging. 
+```{r warning=FALSE}
+#Preprocessing data types
+
+#keeps are the variable names of the columns we want to keep 
+keeps <- colnames(df_tsv[[7]]) 
+
+#selects the columns with those names from keeps
+df_tsv2 <- lapply(df_tsv, function(i){dplyr::select(i,keeps)})
+
+#fixes annoying naming issues 
+df_tsv2[[6]]$level_of_colonisation <- as.character(df_tsv2[[6]]$level_of_colonisation)
+df_tsv2[[6]]$group_level_of_colonisation <- as.character(df_tsv2[[6]]$group_level_of_colonisation)
+
+#Binding rows 
+df_tsv3 <- df_tsv2 %>% bind_rows()
+
+#creates a list of mice in the experiment 1 to 3 is due to which mice are known.
+mouse_id<-lapply(LETTERS[c(1:6)],function(x){return(paste0("Mouse_",x,1:3))}) %>% unlist() 
+
+mouse_id
+```
+```{r}
+#groups according to mouse_id then arranges by day (ascending)
+df_tsv4 <- df_tsv3 %>% 
+  filter(host_subject_id %in% mouse_id) %>% 
+  group_by(host_subject_id) %>% 
+  arrange(day_of_experiment_numerical, .by_group = TRUE)
+```
+## Filtering by continuous days (24 days was the result)
+```{r}
+#function to get the lowest amount of days to which there is continuous data across the board. 
+lowest_day <- function(variables, df) {
+  #variables = mouse_id 
+  #df = data frame in question
+  full<-1:60 
+  daylist <- df %>% dplyr::filter(host_subject_id == variables) %>% 
+    ungroup() %>% 
+    dplyr::select(day_of_experiment_numerical) %>% pull()
+  smallest <- setdiff(full,daylist) %>% min() - 1
+  return(smallest)
+}
+
+#does a global search for the lowest day of continuous data 
+lowdays<-lapply(mouse_id,lowest_day,df=df_tsv4) %>% unlist() %>% min() 
+lowdays 
+
+#performs the "24" day cut off 
+df_vanco <- df_tsv4 %>% 
+  dplyr::filter(day_of_experiment_numerical %in% 1:lowdays) 
+
+#further cutting of the dataset 
+df_present <- df_vanco %>% dplyr::select(sample_id, title, antibiotic, 
+                                         phase_of_experiment,
+                                         level_of_colonisation,
+                                         route_abx_administration,
+                                         day_of_experiment_numerical, 
+                                         average_cfu_counts, 
+                                         cfu_counts)
+```
+## Acquiring sample id's 
+Now that the meta data sets are correctly ordered we acquire the sample_id's to match with the count data. 
+```{r}
+sample_E_name <- df_present %>% ungroup() %>% 
+  dplyr::pull(sample_id) 
+```
+## OTU count filtering 
+0.01 % cut across total OTU recorded. 
+```{r}
+percent = 0.01 
+df_E <- x_merged %>% column_to_rownames(var="16S_SEQUENCE") %>% 
+  mutate_all(., function(x) as.numeric(as.character(x))) %>% #converts the data frame to numeric 
+  dplyr::select(all_of(sample_E_name)) %>%
+  dplyr::filter(rowSums(.[,2:ncol(.)])*100/(sum(rowSums(.[,2:ncol(.)]))) > percent) %>% 
+  dplyr::mutate_if(is.numeric, function(x) x+1)  %>% 
+  tibble::rownames_to_column(., "Row.names")
+```
+## Taxa assignment DADA 
+```{r}
+#corrects the directory 
+setwd("~/Desktop/Microbial Project/Reading 16s BIOM file 2")
+
+#DNA sequences 
+seq<-as.character(df_E$Row.names) 
+
+taxa_clasification <- assignTaxonomy(seq, "Data/silva_nr99_v138.1_wSpecies_train_set.fa.gz",
+                                     multithread=TRUE)
+write.csv(taxa_clasification, "Data/taxanomy3.csv")
+
+#fixing annoying row.name issue. 
+taxa_clasification2 <- cbind(Row.names = rownames(taxa_clasification), 
+                             taxa_clasification)
+rownames(taxa_clasification2) <- 1:nrow(taxa_clasification2)
+df_taxa<-merge(taxa_clasification2, df_E, 
+               by = "Row.names", all = TRUE)
+
+#assigns to different data variable for convenience of prototyping 
+df_taxa2<-df_taxa
+
+#add OTUs labels
+rownames(df_taxa2) <- paste0("OTU", 1:nrow(df_taxa2))
+df_taxa2 <- df_taxa2 %>% add_column(OTU = paste0("OTU", 1:nrow(df_taxa2)), .before = "Row.names")
+```
+## LMMS Processing Function 
+The \texttt{multipurpose} function receives a list of mouse id's for one group of experiments and outputs a list containing various pieces of data (read comments for DATA). The most important result is \texttt{DATA$lmms.output} which is the lmms clr aggregated trajectories for the experimental group.  
+```{r}
+#multipurpose function 
+multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays) {
+  #raw count data
+  datacounts <- list() 
+  
+  #CLR data stored
+  datalist <- list() 
+  i <- 1 
+  for (mouse in mouse_id_antibiotic) {
+    print(mouse)
+    #samples of mouse with respect to their day and "mouse" of the iteration 
+    list_sample <- df_vanco %>% filter(host_subject_id==mouse) %>% 
+      arrange(day_of_experiment_numerical) %>% ungroup() %>% dplyr::select(sample_id)
+    
+    #gets the samples for mouse in loop 
+    otumat<-df_taxa2 %>% dplyr::select(list_sample$sample_id) 
+    
+    #TAXA TABLE for all the mice 
+    taxmat<-df_taxa2 %>% dplyr::select(colnames(taxa_clasification))
+    
+    OTU = otu_table(as.matrix(otumat), taxa_are_rows = TRUE) 
+    TAX = tax_table(as.matrix(taxmat)) 
+    
+    #deals strictly in samples not OTUs 
+    meta_sample <- df_vanco %>% ungroup() %>% 
+      dplyr::select(sample_id, phase_of_experiment, day_of_experiment_numerical) %>% 
+      filter(sample_id %in% list_sample$sample_id) %>% arrange(day_of_experiment_numerical) 
+    
+    #fixes the indices
+    meta_samplD2 <- meta_sample %>% dplyr::select(phase_of_experiment,day_of_experiment_numerical) %>%
+      as.data.frame()
+    rownames(meta_samplD2) <- meta_sample$sample_id
+    
+    physeq1<- phyloseq(OTU,sample_data(meta_samplD2),TAX)
+    physeq.top20 <- transform_sample_counts(physeq1, function(OTU) OTU/sum(OTU))
+    
+    #antibiotic name finder 
+    ant<- df_vanco %>% filter(host_subject_id==mouse) %>% ungroup() %>% 
+      dplyr::select(antibiotic) %>% dplyr::first() %>% dplyr::first()
+
+    #plots the compositional data 
+    print(plot_bar(physeq.top20, x="day_of_experiment_numerical", fill="Family") +
+            facet_grid(~factor(phase_of_experiment, 
+                               levels=c('naive','antibiotic','wean off','colonised','carrier','control')), 
+                       scales="free_x") + 
+            ggtitle(paste(mouse, ant ,sep=" ")) +
+            xlab("Day of Experiment"))
+    
+    #CLR transformed data 
+    df_clr_D1 <- clr(t(otu_table(physeq1)[,1:lowdays]))
+    rownames(df_clr_D1) <- paste0(mouse, "_", 1:lowdays)
+    
+    # stores the CLR transform inside datalist from before. 
+    datalist[[i]] <- df_clr_D1 
+    
+    #original counts non-CLR
+    df_clr_D2 <- t(otu_table(physeq1)[,1:lowdays])
+    rownames(df_clr_D2) <- paste0(mouse, "_", 1:lowdays)
+    
+    # stores non-CLR transforms inside datacounts 
+    datacounts[[i]] <- df_clr_D2 
+    i<-i+1 
+  }
+  
+  #CLR data, the following merges the data from list. 
+  df_clr_ALL_E <- do.call(rbind, datalist)
+  
+  #CLR data merged from all mice in the experiment. 
+  data.filtered <- df_clr_ALL_E
+  time <- rep(1:lowdays, times=length(mouse_id_antibiotic), each=1)
+  pred<-c(1:lowdays)
+  
+  #standard spline of step size 1.0 
+  lmms.output <- lmms::lmmSpline(data = data.filtered, time = time,
+                                 sampleID = rownames(data.filtered), deri = FALSE,
+                                 basis = "p-spline", numCores = 6, timePredict = pred,
+                                 keepModels = TRUE)
+  
+  #creates an interpolation spline of step size 0.5
+  pred_fine<-seq(1,lowdays, by = 0.5)
+  
+  #standard spline of step size 0.5
+  lmms.output_fine <- lmms::lmmSpline(data = data.filtered, time = time,
+                                 sampleID = rownames(data.filtered), deri = FALSE,
+                                 basis = "p-spline", numCores = 6, timePredict = pred_fine,
+                                 keepModels = TRUE)
+  
+  #extracts spline out of the step size of 1 lmms 
+  modelled.data <- t(slot(lmms.output, 'predSpline'))
+  
+  #tidification of the clr data
+  data.gathered <- modelled.data %>% as.data.frame() %>% 
+    tibble::rownames_to_column("time") %>%
+    mutate(time = as.numeric(time)) %>%
+    tidyr::pivot_longer(names_to="feature", values_to = 'value', -time)
+  
+  # print(ggplot(data.gathered, aes(x = time, y = value, color = feature)) + geom_line() +
+  #   theme_bw() + ggtitle("`lmms` profiles") + ylab("Feature expression") +
+  #   xlab("Time"))
+  
+  filter.res <- lmms.filter.lines(data = data.filtered, 
+                                  lmms.obj = lmms.output, 
+                                  time = time)
+  
+  profile.filtered <- filter.res$filtered[, colSums(filter.res$filtered != 0) > 0]
+  
+  #6 clusters
+  vary_clusters <- 6
+  pca.res <- pca(X = profile.filtered, ncomp = vary_clusters, scale = TRUE, center=TRUE) 
+
+  #to store the data in a list
+  DATA <- list() 
+  DATA$time<- time #time step size 1 
+  DATA$antibiotic <- ant #antibiotics
+  
+  #clr data
+  DATA$modelled.data <- modelled.data #raw clr data of "3" mice from the same group 
+  DATA$data.gathered <- data.gathered #tidy clr data for plotting purposes 
+  DATA$data.filtered <- data.filtered #CLR data for 3 mice. 
+  
+  DATA$pca.res <- pca.res #cluster assignment of OTUs 
+  DATA$lmms.output <- lmms.output # interpolated LMMS data for step size 1 
+  DATA$lmms.output_fine <- lmms.output_fine # interpolated LMMS data for step size 0.5  
+  
+  #raw count data
+  DATA$datacounts <- datacounts
+  
+  return(DATA)
+}
+```
+## LMMS CLR Data for control group 
+```{r}
+mice_names<-lapply(LETTERS[c(1:6)],function(x){return(paste0("Mouse_",x,1:3))})
+
+mouse_control <- mice_names[[6]] # print the list mice_control to know the 
+
+ctrl<-lapply(mouse_control, multipurpose,df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays)
+control_data <- ctrl[[1]]$lmms.output@predSpline
+```
+\texttt{control_data} is the aggregated LMMS clr trajectory of the 3 three mice within the control group. Change the index of the \texttt{mice_names} above for the \texttt{mouse_control} variable to get other LMMS trajectories for other antibiotics. Below is a print out of the control trajectories. 
+```{r}
+head(control_data) 
+```
