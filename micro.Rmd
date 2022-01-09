@@ -101,7 +101,7 @@ lowest_day <- function(variables, df) {
 }
 
 #does a global search for the lowest day of continuous data 
-lowdays<-lapply(mouse_id,lowest_day,df=df_tsv4) %>% unlist() %>% min() 
+lowdays<-lapply(mouse_id,lowest_day, df=df_tsv4) %>% unlist() %>% min() 
 lowdays 
 
 #performs the "24" day cut off 
@@ -196,11 +196,11 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
       as.data.frame()
     rownames(meta_samplD2) <- meta_sample$sample_id
     
-    physeq1<- phyloseq(OTU,sample_data(meta_samplD2),TAX)
+    physeq1 <- phyloseq(OTU,sample_data(meta_samplD2),TAX)
     physeq.top20 <- transform_sample_counts(physeq1, function(OTU) OTU/sum(OTU))
     
     #antibiotic name finder 
-    ant<- df_vanco %>% filter(host_subject_id==mouse) %>% ungroup() %>% 
+    ant <- df_vanco %>% filter(host_subject_id==mouse) %>% ungroup() %>% 
       dplyr::select(antibiotic) %>% dplyr::first() %>% dplyr::first()
 
     #plots the compositional data 
@@ -279,9 +279,9 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
   DATA$antibiotic <- ant #antibiotics
   
   #clr data
-  DATA$modelled.data <- modelled.data #raw clr data of "3" mice from the same group 
-  DATA$data.gathered <- data.gathered #tidy clr data for plotting purposes 
-  DATA$data.filtered <- data.filtered #CLR data for 3 mice. 
+  DATA$modelled.data <- modelled.data #lmms clr data of "3" mice from the same group 
+  DATA$data.gathered <- data.gathered #tidy of lmms clr data for plotting purposes 
+  DATA$data.filtered <- data.filtered #raw CLR data for 3 mice 
   
   DATA$pca.res <- pca.res #cluster assignment of OTUs 
   DATA$lmms.output <- lmms.output # interpolated LMMS data for step size 1 
@@ -299,10 +299,95 @@ mice_names<-lapply(LETTERS[c(1:6)],function(x){return(paste0("Mouse_",x,1:3))})
 
 mouse_control <- mice_names[[6]] # print the list mice_control to know the 
 
-ctrl<-lapply(mouse_control, multipurpose,df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays)
-control_data <- ctrl[[1]]$lmms.output@predSpline
+ctrl<-lapply(mouse_control, multipurpose, df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays) #apply the function 
 ```
 \texttt{control_data} is the aggregated LMMS clr trajectory of the 3 three mice within the control group. Change the index of the \texttt{mice_names} above for the \texttt{mouse_control} variable to get other LMMS trajectories for other antibiotics. Below is a print out of the control trajectories. 
 ```{r}
+ctrl[[1]]$antibiotic #gives the name of the experimental unit group  
+
+control_data <- ctrl[[1]]$lmms.output@predSpline
 head(control_data) 
 ```
+```{r}
+plotting_function <- function(clrlmms){
+  p <- ggplot(clrlmms$data.gathered, aes(x = time, y = value, color = feature)) + geom_line() +
+    theme_bw() + ggtitle(paste0(clrlmms$antibiotic," LMMS profiles"))  + ylab("Feature expression") +
+    xlab("Time") + theme(legend.position = "none")
+  return(p)} 
+
+#plot of control lmms clr trajectories  
+plotting_function(ctrl[[1]])
+```
+## Control Analysis of Models Used Tally 
+```{r}
+table(ctrl[[1]]$lmms.output@modelsUsed) 
+```
+## Work in progress for control analysis
+```{r}
+control_analysis <- function(i=5,j=6){ 
+  i=5 
+  j=6
+  df_times <- c(ult[[i]]$timey,ult[[j]]$timey)
+  
+  df_all_control_F<- rbind(ult[[i]]$data.filtered, ult[[j]]$data.filtered) 
+  #sample names 
+  df_de_names <- row.names(df_all_control_F)
+  
+  #Groups 
+  df_group <- c(replicate(length(ult[[i]]$timey),"G1"),replicate(length(ult[[j]]$timey),"G2")) 
+  
+  lmmsDEtest <-lmmsDE(data=df_all_control_F,
+                        time=df_times,
+                        sampleID=df_de_names,
+                        group=df_group)
+  
+  lmmsDEtest2<-lmmsDEtest
+  myvars <- paste("G1", ult[[5]]$timey, sep=" ")
+  myvars2 <- paste("G2",ult[[6]]$timey, sep=" ") 
+  
+  meh <- lmmsDEtest2@DE %>% filter(adj.Group<0.05) %>% dplyr::select(Molecule) %>% 
+    lapply(function(x) as.numeric(gsub("OTU", "", x))) 
+  
+  #takes the middle 10 from 20 to 30.
+  otUs <- meh$Molecule[c(20,22)]
+  
+  group_1 <-lmmsDEtest2@predGroup[,myvars][otUs,] %>% as.data.frame() %>%
+    add_column(OTUs = otUs, .before = 1) %>%
+    add_column(Group = rep("Experimental", times=length(otUs)), .before = 2) 
+  
+  group_1 <- pivot_longer(group_1, -c("Group", "OTUs"), values_to = "Value", names_to = "Time")
+  group_1
+  
+  group_2 <-lmmsDEtest2@predGroup[,myvars2][otUs,] %>% as.data.frame() %>% 
+    add_column(OTUs = otUs, .before = 1) %>% 
+    add_column(Group = rep("Control", times=length(otUs)), .before = 2) 
+  
+  group_2 <-pivot_longer(group_2, -c("Group", "OTUs"), values_to = "Value", names_to = "Time")
+  group_2 
+  
+  super_frame <- rbind(group_1,group_2) 
+  super_frame$Time <- rep(ult[[6]]$time, times=2*length(otUs))
+  
+  col_bind<-cbind(df_present$host_subject_id, df_present$sample_id,
+                  df_present$day_of_experiment_numerical,
+                  df_all_clr) %>% 
+    add_column(Group = c(rep("Experimental", times=3*33), rep("Control", times=3*33)), .before = 1) 
+  
+  col_bind %>% View()                  
+  
+  other.frame <- col_bind %>% dplyr::select(-c("df_total$host_subject_id","df_total$sample_id")) %>%  
+    pivot_longer(-c("Group", "df_total$day_of_experiment_numerical"), values_to = "Value", names_to = "OTUs") %>% 
+    mutate(OTUs = as.numeric(gsub("OTU", "", OTUs))) %>% filter(OTUs %in% otUs) %>% 
+    rename("df_total$day_of_experiment_numerical"="Time")
+  
+  ggplot() +
+    geom_line(data = super_frame, aes(x = Time, y = Value, color = Group)) + 
+    geom_point(data = other.frame, aes(x = Time, y = Value, color = Group)) +
+    facet_wrap(facets =  vars(OTUs)) + 
+    ggtitle("OTUs of Group Difference LMMSDE")
+  
+  #lmmsDEtest@modelsUsed
+  return(lmmsDEtest)
+  }
+```
+
