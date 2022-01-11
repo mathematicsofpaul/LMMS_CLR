@@ -137,6 +137,7 @@ df_E <- x_merged %>% column_to_rownames(var="16S_SEQUENCE") %>%
 ```
 ## Taxa assignment DADA 
 ```{r}
+
 #change the following line to /LMMS_CLR 
 setwd("~/Desktop/Microbial Project/Reading 16s BIOM file 2")
 
@@ -205,8 +206,8 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
     physeq.top20 <- transform_sample_counts(physeq1, function(OTU) OTU/sum(OTU))
     
     #antibiotic name finder requires clean up 
-    ant <- df_vanco %>% filter(host_subject_id==mouse) %>% ungroup() %>% 
-      dplyr::select(antibiotic) %>% dplyr::first() %>% dplyr::first()
+    antibiotic <- df_vanco %>% filter(host_subject_id=="Mouse_F1") %>% ungroup() %>% 
+      dplyr::select(antibiotic) %>% dplyr::pull() %>% dplyr::first()
 
     #plots the compositional data 
     print(plot_bar(physeq.top20, x="day_of_experiment_numerical", fill="Family") +
@@ -281,7 +282,7 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
   #to store the data in a list
   DATA <- list() 
   DATA$time<- time #time step size 1 
-  DATA$antibiotic <- ant #antibiotics
+  DATA$antibiotic <- antibiotic #antibiotics
   
   #clr data
   DATA$modelled.data <- modelled.data #lmms clr data of "3" mice from the same group 
@@ -327,14 +328,23 @@ plotting_function(ctrl[[1]])
 ```{r}
 table(ctrl[[1]]$lmms.output@modelsUsed) 
 ```
-## Work in progress for control analysis
+## Control analysis
 ```{r}
 mice_names<-lapply(LETTERS[c(1:6)],function(x){return(paste0("Mouse_",x,1:3))})
 mouse_results<-lapply(mice_names, multipurpose, df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays) 
 ```
 ```{r}
 control_analysis <- function(clrlmms,i=5,j=6){ 
-
+  # displays a plot of the respective splines for the OTUs of each control unit. 
+  # since there are many OTUs the 20th to 30th OTUs are selected out of the filter. 
+  
+  # INPUTS: 
+  # clrlmms data frame 
+  # j=6 index of the control experimental unit 
+  # i=5 index of the vancomycin experimental unit
+  
+  # OUTPUTS: plot of clr LMMS splines with raw clr data points 
+  
   #times for the differential analysis
   df_times <- c(clrlmms[[i]]$time,clrlmms[[j]]$time)
   
@@ -395,7 +405,6 @@ control_analysis <- function(clrlmms,i=5,j=6){
         geom_point(data = other_frame, aes(x = Time, y = Value, color = Group)) +
         facet_wrap(facets =  vars(OTUs)) + 
         ggtitle("OTUs of Group Difference LMMSDE") 
-  
   return(p)
 }
 
