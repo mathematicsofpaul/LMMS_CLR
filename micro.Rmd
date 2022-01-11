@@ -64,6 +64,7 @@ df_tsv <- list.files() %>%
   lapply(function(i) {
     read.csv(i,sep = "\t")})
 ```
+## Data Pre-processing
 The reason for the varieties of \texttt{df_tsv}'s is for the purpose of debugging. 
 ```{r warning=FALSE}
 #Preprocessing data types
@@ -84,26 +85,33 @@ df_tsv3 <- df_tsv2 %>% bind_rows()
 #creates a list of mice in the experiment 1 to 3 is due to which mice are known.
 mouse_id<-lapply(LETTERS[c(1:6)],function(x){return(paste0("Mouse_",x,1:3))}) %>% unlist() 
 
-mouse_id
-```
-```{r}
+print(mouse_id) 
+
 #groups according to mouse_id then arranges by day (ascending)
 df_tsv4 <- df_tsv3 %>% 
   filter(host_subject_id %in% mouse_id) %>% 
   group_by(host_subject_id) %>% 
   arrange(day_of_experiment_numerical, .by_group = TRUE)
 ```
+Recall that \texttt{df_tsv} files are metadata files with \texttt{df_tsv3} and \texttt{df_tsv4} being the ones mostly used. 
 ## Filtering by continuous days (24 days was the result)
 ```{r}
-#function to get the lowest amount of days to which there is continuous data across the board. 
 lowest_day <- function(variables, df) {
-  #variables = mouse_id 
-  #df = data frame in question
+  #Function to get the lowest amount of days in which there is continuous data across the board. 
+  
+  #INPUT: 
+  # variables - mouse_id 
+  # df - data frame in question
+  
+  #OUTPUT:
+  # lowest day of continuous data
+  
   full<-1:60 
   daylist <- df %>% dplyr::filter(host_subject_id == variables) %>% 
     ungroup() %>% 
     dplyr::select(day_of_experiment_numerical) %>% pull()
   smallest <- setdiff(full,daylist) %>% min() - 1
+  
   return(smallest)
 }
 
@@ -125,7 +133,7 @@ df_present <- df_vanco %>% dplyr::select(sample_id, title, antibiotic,
                                          cfu_counts)
 ```
 ## Acquiring sample id's 
-Now that the meta data sets are correctly ordered we acquire the sample_id's to match with the count data. 
+Now that the meta data sets are correctly ordered we acquire the sample_id's in order to match the count data. 
 ```{r}
 sample_E_name <- df_present %>% ungroup() %>% 
   dplyr::pull(sample_id) 
@@ -143,7 +151,6 @@ df_E <- x_merged %>% column_to_rownames(var="16S_SEQUENCE") %>%
 ```
 ## Taxa assignment DADA 
 ```{r}
-
 #change the following line to /LMMS_CLR 
 setwd("~/Desktop/Microbial Project/Reading 16s BIOM file 2")
 
@@ -220,7 +227,7 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
             facet_grid(~factor(phase_of_experiment, 
                                levels=c('naive','antibiotic','wean off','colonised','carrier','control')), 
                        scales="free_x") + 
-            ggtitle(paste(mouse, ant ,sep=" ")) +
+            ggtitle(paste(mouse, antibiotic ,sep=" ")) +
             xlab("Day of Experiment"))
     
     #CLR transformed data 
@@ -309,7 +316,7 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
 ```{r}
 mice_names<-lapply(LETTERS[c(1:6)],function(x){return(paste0("Mouse_",x,1:3))})
 
-mouse_control <- mice_names[[6]] # index 6 to get the control experimental unit 
+mouse_control <- list(mice_names[[6]]) # index 6 to get the control experimental unit 
 
 ctrl<-lapply(mouse_control, multipurpose, df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays) #apply the function 
 ```
@@ -339,6 +346,10 @@ table(ctrl[[1]]$lmms.output@modelsUsed)
 mice_names<-lapply(LETTERS[c(1:6)],function(x){return(paste0("Mouse_",x,1:3))})
 mouse_results<-lapply(mice_names, multipurpose, df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays) 
 ```
+```{r}
+table(mouse_results[[7]]$lmms.output@modelsUsed)
+```
+
 ```{r}
 control_analysis <- function(clrlmms,i=5,j=6){ 
   # Displays a plot of the respective splines for the OTUs of each control unit. 
