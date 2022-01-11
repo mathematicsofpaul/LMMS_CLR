@@ -30,18 +30,24 @@ Assign the directory as where ever you keep the biom files ".../Data/all".
 ```{r, warning=FALSE}
 library(readr)
 extractor <- function(i){ 
+  #extracts raw count data from .biom files and names the genomic sequences as 16S_SEQUENCE
+  
   temp <- as(biom_data(read_biom(i)),"matrix")
   temp <- cbind(rownames(temp), temp)
   rownames(temp) <- NULL 
   colnames(temp)[1]<-'16S_SEQUENCE'
   temp <- as.data.frame(temp)
-  return(temp)}
+  
+  return(temp)
+  }
 
 #list of biom data
 lst <- lapply(list.files(), FUN=extractor) 
 
 #https://stackoverflow.com/questions/8091303/simultaneously-merge-multiple-data-frames-in-a-list
 #https://stackoverflow.com/questions/48699066/r-merge-list-of-three-dataframes-into-single-dataframe-with-id-in-first-column 
+
+#conducts full join and replaces NA non-recorded sequences as "0". 
 x_merged <- lst %>% 
   purrr::reduce(dplyr::full_join, by = "16S_SEQUENCE") %>% 
   replace(., is.na(.), 0)
@@ -50,15 +56,15 @@ print(paste0("There are ", dim(x_merged)[1], " rows of uniquely recorded microbi
 ```
 ## Changing the directory to where the meta data txt files are kept. 
 ```{r}
-#change this line 
+#change this line to where you downloaded the LMMS file. 
 setwd("~/Desktop/LMMS_CLR/Data/tsvs")
 
-#TSV are raw excel extracted data 
+#TSV are raw excel extracted metadata 
 df_tsv <- list.files() %>% 
   lapply(function(i) {
     read.csv(i,sep = "\t")})
 ```
-The reason for the variety amount of \texttt{df_tsv}'s is for the purpose of debugging. 
+The reason for the varieties of \texttt{df_tsv}'s is for the purpose of debugging. 
 ```{r warning=FALSE}
 #Preprocessing data types
 
