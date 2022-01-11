@@ -206,7 +206,7 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
     physeq.top20 <- transform_sample_counts(physeq1, function(OTU) OTU/sum(OTU))
     
     #antibiotic name finder requires clean up 
-    antibiotic <- df_vanco %>% filter(host_subject_id=="Mouse_F1") %>% ungroup() %>% 
+    antibiotic <- df_vanco %>% filter(host_subject_id==mouse) %>% ungroup() %>% 
       dplyr::select(antibiotic) %>% dplyr::pull() %>% dplyr::first()
 
     #plots the compositional data 
@@ -335,13 +335,14 @@ mouse_results<-lapply(mice_names, multipurpose, df_vanco=df_vanco, df_taxa2=df_t
 ```
 ```{r}
 control_analysis <- function(clrlmms,i=5,j=6){ 
-  # displays a plot of the respective splines for the OTUs of each control unit. 
-  # since there are many OTUs the 20th to 30th OTUs are selected out of the filter. 
+  # Displays a plot of the respective splines for the OTUs of each control unit. 
+  # Since there are many OTUs, the 20th to 30th OTUs are selected out of the filter. 
+  # modify 20 to 30 index otu_fil <- otu_filtered$Molecule[20:30].  
   
   # INPUTS: 
-  # clrlmms data frame 
+  # clrlmms - clr data frame 
   # j=6 index of the control experimental unit 
-  # i=5 index of the vancomycin experimental unit
+  # i=5 index of the vancomycin experimental unit. Change index to test out different experimental units.
   
   # OUTPUTS: plot of clr LMMS splines with raw clr data points 
   
@@ -390,10 +391,10 @@ control_analysis <- function(clrlmms,i=5,j=6){
   col_bind <- rbind(clrlmms[[i]]$data.filtered, clrlmms[[j]]$data.filtered) %>% 
     as_tibble(.,rownames = "mouse_id") %>% 
     add_column(Group = c(rep("Experimental", 
-                         times=length(mouse_results[[i]]$time)), 
+                         times=length(clrlmms[[i]]$time)), 
                         rep("Control", 
-                         times=length(mouse_results[[j]]$time))), .before = 1) %>% 
-    add_column(Time = c(mouse_results[[i]]$time, mouse_results[[j]]$time), .before = 1)
+                         times=length(clrlmms[[j]]$time))), .before = 1) %>% 
+    add_column(Time = c(clrlmms[[i]]$time, clrlmms[[j]]$time), .before = 1)
   
   other_frame <- col_bind %>% dplyr::select(-c("mouse_id")) %>%  
     pivot_longer(-c("Group", "Time"), values_to = "Value", names_to = "OTUs") %>% 
@@ -404,7 +405,7 @@ control_analysis <- function(clrlmms,i=5,j=6){
         geom_line(data = super_frame, aes(x = Time, y = Value, color = Group)) + 
         geom_point(data = other_frame, aes(x = Time, y = Value, color = Group)) +
         facet_wrap(facets =  vars(OTUs)) + 
-        ggtitle("OTUs of Group Difference LMMSDE") 
+        ggtitle(paste0("OTUs of Group Difference LMMSDE: ", clrlmms[[i]]$antibiotic," and ",clrlmms[[j]]$antibiotic ))  
   return(p)
 }
 
