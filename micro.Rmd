@@ -171,6 +171,7 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
   #CLR data stored
   datalist <- list() 
   i <- 1 
+  
   for (mouse in mouse_id_antibiotic) {
     print(mouse)
     #samples of mouse with respect to their day and "mouse" of the iteration 
@@ -199,7 +200,7 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
     physeq1 <- phyloseq(OTU,sample_data(meta_samplD2),TAX)
     physeq.top20 <- transform_sample_counts(physeq1, function(OTU) OTU/sum(OTU))
     
-    #antibiotic name finder 
+    #antibiotic name finder requires clean up 
     ant <- df_vanco %>% filter(host_subject_id==mouse) %>% ungroup() %>% 
       dplyr::select(antibiotic) %>% dplyr::first() %>% dplyr::first()
 
@@ -297,7 +298,7 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
 ```{r}
 mice_names<-lapply(LETTERS[c(1:6)],function(x){return(paste0("Mouse_",x,1:3))})
 
-mouse_control <- mice_names[[6]] # print the list mice_control to know the 
+mouse_control <- mice_names[[6]] # index 6 to get the control experimental unit 
 
 ctrl<-lapply(mouse_control, multipurpose, df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays) #apply the function 
 ```
@@ -324,70 +325,76 @@ table(ctrl[[1]]$lmms.output@modelsUsed)
 ```
 ## Work in progress for control analysis
 ```{r}
-control_analysis <- function(i=5,j=6){ 
-  i=5 
-  j=6
-  df_times <- c(ult[[i]]$timey,ult[[j]]$timey)
+mice_names<-lapply(LETTERS[c(1:6)],function(x){return(paste0("Mouse_",x,1:3))})
+mouse_results<-lapply(mice_names, multipurpose, df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays) 
+```
+```{r}
+control_analysis <- function(clrlmms,i=5,j=6){ 
+
+  #times for the differential analysis
+  df_times <- c(clrlmms[[i]]$time,clrlmms[[j]]$time)
   
-  df_all_control_F<- rbind(ult[[i]]$data.filtered, ult[[j]]$data.filtered) 
-  #sample names 
+  #raw non-lmms raw clr data for each mouse
+  df_all_control_F<- rbind(clrlmms[[i]]$data.filtered, clrlmms[[j]]$data.filtered) 
+  
+  #data point names for each mouse and time point 
   df_de_names <- row.names(df_all_control_F)
   
-  #Groups 
-  df_group <- c(replicate(length(ult[[i]]$timey),"G1"),replicate(length(ult[[j]]$timey),"G2")) 
+  #assigns the labels for each experimental group  
+  df_group <- c(replicate(length(clrlmms[[i]]$time),"G1"), replicate(length(clrlmms[[j]]$time),"G2"))   
   
+  #lmmsDE analysis
   lmmsDEtest <-lmmsDE(data=df_all_control_F,
                         time=df_times,
                         sampleID=df_de_names,
                         group=df_group)
   
   lmmsDEtest2<-lmmsDEtest
-  myvars <- paste("G1", ult[[5]]$timey, sep=" ")
-  myvars2 <- paste("G2",ult[[6]]$timey, sep=" ") 
   
-  meh <- lmmsDEtest2@DE %>% filter(adj.Group<0.05) %>% dplyr::select(Molecule) %>% 
+  myvars <- paste("G1", clrlmms[[i]]$time, sep=" ")
+  myvars2 <- paste("G2",clrlmms[[j]]$time, sep=" ") 
+  
+  otu_filtered <- lmmsDEtest2@DE %>% filter(adj.Group<0.05) %>% dplyr::select(Molecule) %>% 
     lapply(function(x) as.numeric(gsub("OTU", "", x))) 
   
   #takes the middle 10 from 20 to 30.
-  otUs <- meh$Molecule[c(20,22)]
+  otu_fil <- otu_filtered$Molecule[20:30]
   
-  group_1 <-lmmsDEtest2@predGroup[,myvars][otUs,] %>% as.data.frame() %>%
-    add_column(OTUs = otUs, .before = 1) %>%
-    add_column(Group = rep("Experimental", times=length(otUs)), .before = 2) 
-  
-  group_1 <- pivot_longer(group_1, -c("Group", "OTUs"), values_to = "Value", names_to = "Time")
-  group_1
-  
-  group_2 <-lmmsDEtest2@predGroup[,myvars2][otUs,] %>% as.data.frame() %>% 
-    add_column(OTUs = otUs, .before = 1) %>% 
-    add_column(Group = rep("Control", times=length(otUs)), .before = 2) 
-  
-  group_2 <-pivot_longer(group_2, -c("Group", "OTUs"), values_to = "Value", names_to = "Time")
-  group_2 
+  group_1 <- lmmsDEtest2@predGroup[,myvars][otu_fil,] %>% as.data.frame() %>%
+    add_column(OTUs = otu_fil, .before = 1) %>%
+    add_column(Group = rep("Experimental", times=length(otu_fil)), .before = 2) %>% 
+    pivot_longer(., -c("Group", "OTUs"), values_to = "Value", names_to = "Time")
+
+  group_2 <-lmmsDEtest2@predGroup[,myvars2][otu_fil,] %>% as.data.frame() %>% 
+    add_column(OTUs = otu_fil, .before = 1) %>% 
+    add_column(Group = rep("Control", times=length(otu_fil)), .before = 2) %>% 
+    pivot_longer(., -c("Group", "OTUs"), values_to = "Value", names_to = "Time")
   
   super_frame <- rbind(group_1,group_2) 
-  super_frame$Time <- rep(ult[[6]]$time, times=2*length(otUs))
+  super_frame$Time <- rep(ult[[j]]$time, times=2*length(otu_fil))
   
-  col_bind<-cbind(df_present$host_subject_id, df_present$sample_id,
-                  df_present$day_of_experiment_numerical,
-                  df_all_clr) %>% 
-    add_column(Group = c(rep("Experimental", times=3*33), rep("Control", times=3*33)), .before = 1) 
+  col_bind <- rbind(clrlmms[[i]]$data.filtered, clrlmms[[j]]$data.filtered) %>% 
+    as_tibble(.,rownames = "mouse_id") %>% 
+    add_column(Group = c(rep("Experimental", 
+                         times=length(mouse_results[[i]]$time)), 
+                        rep("Control", 
+                         times=length(mouse_results[[j]]$time))), .before = 1) %>% 
+    add_column(Time = c(mouse_results[[i]]$time, mouse_results[[j]]$time), .before = 1)
   
-  col_bind %>% View()                  
+  other_frame <- col_bind %>% dplyr::select(-c("mouse_id")) %>%  
+    pivot_longer(-c("Group", "Time"), values_to = "Value", names_to = "OTUs") %>% 
+    mutate(OTUs = as.numeric(gsub("OTU", "", OTUs))) %>% 
+    filter(OTUs %in% otu_fil)  
   
-  other.frame <- col_bind %>% dplyr::select(-c("df_total$host_subject_id","df_total$sample_id")) %>%  
-    pivot_longer(-c("Group", "df_total$day_of_experiment_numerical"), values_to = "Value", names_to = "OTUs") %>% 
-    mutate(OTUs = as.numeric(gsub("OTU", "", OTUs))) %>% filter(OTUs %in% otUs) %>% 
-    rename("df_total$day_of_experiment_numerical"="Time")
+   p <- ggplot() +
+        geom_line(data = super_frame, aes(x = Time, y = Value, color = Group)) + 
+        geom_point(data = other_frame, aes(x = Time, y = Value, color = Group)) +
+        facet_wrap(facets =  vars(OTUs)) + 
+        ggtitle("OTUs of Group Difference LMMSDE") 
   
-  ggplot() +
-    geom_line(data = super_frame, aes(x = Time, y = Value, color = Group)) + 
-    geom_point(data = other.frame, aes(x = Time, y = Value, color = Group)) +
-    facet_wrap(facets =  vars(OTUs)) + 
-    ggtitle("OTUs of Group Difference LMMSDE")
-  
-  #lmmsDEtest@modelsUsed
-  return(lmmsDEtest)
-  }
+  return(p)
+}
+
+control_analysis(mouse_results,i=5,j=6)
 ```
 
