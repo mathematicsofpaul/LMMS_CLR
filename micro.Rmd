@@ -20,6 +20,7 @@ library(timeOmics)
 library(lmms)
 library(stringi)
 library(purrr)
+library(gridExtra) #grid.arrange function
 
 #Change this line to /LMMS_CLR/Data/all 
 knitr::opts_knit$set(root.dir = '~/Desktop/LMMS_CLR/Data/all')
@@ -120,11 +121,11 @@ lowdays<-lapply(mouse_id,lowest_day, df=df_tsv4) %>% unlist() %>% min()
 lowdays 
 
 #performs the "24" day cut off 
-df_vanco <- df_tsv4 %>% 
+df_meta <- df_tsv4 %>% 
   dplyr::filter(day_of_experiment_numerical %in% 1:lowdays) 
 
 #further cutting of the dataset 
-df_present <- df_vanco %>% dplyr::select(sample_id, title, antibiotic, 
+df_present <- df_meta %>% dplyr::select(sample_id, title, antibiotic, 
                                          phase_of_experiment,
                                          level_of_colonisation,
                                          route_abx_administration,
@@ -171,18 +172,15 @@ rownames(taxa_clasification2) <- 1:nrow(taxa_clasification2)
 df_taxa<-merge(taxa_clasification2, df_E, 
                by = "Row.names", all = TRUE)
 
-#assigns to different data variable for convenience of prototyping 
-df_taxa2<-df_taxa
-
 #add OTUs labels
-rownames(df_taxa2) <- paste0("OTU", 1:nrow(df_taxa2))
-df_taxa2 <- df_taxa2 %>% add_column(OTU = paste0("OTU", 1:nrow(df_taxa2)), .before = "Row.names")
+rownames(df_taxa) <- paste0("OTU", 1:nrow(df_taxa))
+df_taxa <- df_taxa %>% add_column(OTU = paste0("OTU", 1:nrow(df_taxa)), .before = "Row.names")
 ```
 ## LMMS Processing Function 
 The \texttt{multipurpose} function receives a list of mouse id's for one group of experiments and outputs a list containing various pieces of data (read comments for DATA). The most important result is \texttt{DATA$lmms.output} which is the lmms clr aggregated trajectories for the experimental group.  
 ```{r}
 #multipurpose function 
-multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays) {
+multipurpose <- function(mouse_id_antibiotic, df_meta=df_meta, df_taxa=df_taxa, lowdays=lowdays) {
   #raw count data
   datacounts <- list() 
   
@@ -193,20 +191,20 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
   for (mouse in mouse_id_antibiotic) {
     print(mouse)
     #samples of mouse with respect to their day and "mouse" of the iteration 
-    list_sample <- df_vanco %>% filter(host_subject_id==mouse) %>% 
+    list_sample <- df_meta %>% filter(host_subject_id==mouse) %>% 
       arrange(day_of_experiment_numerical) %>% ungroup() %>% dplyr::select(sample_id)
     
     #gets the samples for mouse in loop 
-    otumat<-df_taxa2 %>% dplyr::select(list_sample$sample_id) 
+    otumat<-df_taxa %>% dplyr::select(list_sample$sample_id) 
     
     #TAXA TABLE for all the mice 
-    taxmat<-df_taxa2 %>% dplyr::select(colnames(taxa_clasification))
+    taxmat<-df_taxa %>% dplyr::select(colnames(taxa_clasification))
     
     OTU = otu_table(as.matrix(otumat), taxa_are_rows = TRUE) 
     TAX = tax_table(as.matrix(taxmat)) 
     
     #deals strictly in samples not OTUs 
-    meta_sample <- df_vanco %>% ungroup() %>% 
+    meta_sample <- df_meta %>% ungroup() %>% 
       dplyr::select(sample_id, phase_of_experiment, day_of_experiment_numerical) %>% 
       filter(sample_id %in% list_sample$sample_id) %>% arrange(day_of_experiment_numerical) 
     
@@ -219,7 +217,7 @@ multipurpose <- function(mouse_id_antibiotic, df_vanco=df_vanco, df_taxa2=df_tax
     physeq.top20 <- transform_sample_counts(physeq1, function(OTU) OTU/sum(OTU))
     
     #antibiotic name finder requires clean up 
-    antibiotic <- df_vanco %>% filter(host_subject_id==mouse) %>% ungroup() %>% 
+    antibiotic <- df_meta %>% filter(host_subject_id==mouse) %>% ungroup() %>% 
       dplyr::select(antibiotic) %>% dplyr::pull() %>% dplyr::first()
 
     #plots the compositional data 
@@ -318,7 +316,7 @@ mice_names<-lapply(LETTERS[c(1:6)],function(x){return(paste0("Mouse_",x,1:3))})
 
 mouse_control <- list(mice_names[[6]]) # index 6 to get the control experimental unit 
 
-ctrl<-lapply(mouse_control, multipurpose, df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays) #apply the function 
+ctrl<-lapply(mouse_control, multipurpose, df_meta=df_meta, df_taxa=df_taxa, lowdays=lowdays) #apply the function 
 ```
 \texttt{control_data} is the aggregated LMMS clr trajectory of the 3 three mice within the control group. Change the index of the \texttt{mice_names} above for the \texttt{mouse_control} variable to get other LMMS trajectories for other antibiotics. Below is a print out of the control trajectories. 
 ```{r}
@@ -329,6 +327,8 @@ head(control_data)
 ```
 ```{r}
 plotting_function <- function(clrlmms){
+  # plots the clr splines from the main data source derived from the multipurpose function 
+  
   p <- ggplot(clrlmms$data.gathered, aes(x = time, y = value, color = feature)) + geom_line() +
     theme_bw() + ggtitle(paste0(clrlmms$antibiotic," LMMS profiles"))  + ylab("Feature expression") +
     xlab("Time") + theme(legend.position = "none")
@@ -344,36 +344,38 @@ table(ctrl[[1]]$lmms.output@modelsUsed)
 ## Control analysis
 ```{r}
 mice_names<-lapply(LETTERS[c(1:6)],function(x){return(paste0("Mouse_",x,1:3))})
-mouse_results<-lapply(mice_names, multipurpose, df_vanco=df_vanco, df_taxa2=df_taxa2, lowdays=lowdays) 
+mouse_results<-lapply(mice_names, multipurpose, df_meta=df_meta, df_taxa=df_taxa, lowdays=lowdays) 
 ```
 ```{r}
-table(mouse_results[[7]]$lmms.output@modelsUsed)
+table(mouse_results[[6]]$lmms.output@modelsUsed)
 ```
 
 ```{r}
-control_analysis <- function(clrlmms,i=5,j=6){ 
+control_analysis <- function(clrlmms,i=5,ctrl=6){ 
   # Displays a plot of the respective splines for the OTUs of each control unit. 
   # Since there are many OTUs, the 20th to 30th OTUs are selected out of the filter. 
   # modify 20 to 30 index otu_fil <- otu_filtered$Molecule[20:30].  
   
   # INPUTS: 
   # clrlmms - clr data frame 
-  # j=6 index of the control experimental unit 
+  # ctrl=6 index of the control experimental unit 
   # i=5 index of the vancomycin experimental unit. Change index to test out different experimental units.
   
-  # OUTPUTS: plot of clr LMMS splines with raw clr data points 
+  # OUTPUTS: 
+  # plot of clr LMMS splines with raw clr data points 
   
   #times for the differential analysis
-  df_times <- c(clrlmms[[i]]$time,clrlmms[[j]]$time)
+  df_times <- c(clrlmms[[i]]$time, clrlmms[[ctrl]]$time)
   
   #raw non-lmms raw clr data for each mouse
-  df_all_control_F<- rbind(clrlmms[[i]]$data.filtered, clrlmms[[j]]$data.filtered) 
+  df_all_control_F<- rbind(clrlmms[[i]]$data.filtered, clrlmms[[ctrl]]$data.filtered) 
   
   #data point names for each mouse and time point 
   df_de_names <- row.names(df_all_control_F)
   
   #assigns the labels for each experimental group  
-  df_group <- c(replicate(length(clrlmms[[i]]$time),"G1"), replicate(length(clrlmms[[j]]$time),"G2"))   
+  df_group <- c(replicate(length(clrlmms[[i]]$time),"G1"), 
+                replicate(length(clrlmms[[ctrl]]$time),"G2"))   
   
   #lmmsDE analysis
   lmmsDEtest <-lmmsDE(data=df_all_control_F,
@@ -384,7 +386,7 @@ control_analysis <- function(clrlmms,i=5,j=6){
   lmmsDEtest2<-lmmsDEtest
   
   myvars <- paste("G1", clrlmms[[i]]$time, sep=" ")
-  myvars2 <- paste("G2",clrlmms[[j]]$time, sep=" ") 
+  myvars2 <- paste("G2",clrlmms[[ctrl]]$time, sep=" ") 
   
   otu_filtered <- lmmsDEtest2@DE %>% filter(adj.Group<0.05) %>% dplyr::select(Molecule) %>% 
     lapply(function(x) as.numeric(gsub("OTU", "", x))) 
@@ -403,29 +405,176 @@ control_analysis <- function(clrlmms,i=5,j=6){
     pivot_longer(., -c("Group", "OTUs"), values_to = "Value", names_to = "Time")
   
   super_frame <- rbind(group_1,group_2) 
-  super_frame$Time <- rep(ult[[j]]$time, times=2*length(otu_fil))
+  super_frame$Time <- rep(ult[[ctrl]]$time, times=2*length(otu_fil))
   
-  col_bind <- rbind(clrlmms[[i]]$data.filtered, clrlmms[[j]]$data.filtered) %>% 
+  col_bind <- rbind(clrlmms[[i]]$data.filtered, clrlmms[[ctrl]]$data.filtered) %>% 
     as_tibble(.,rownames = "mouse_id") %>% 
     add_column(Group = c(rep("Experimental", 
                          times=length(clrlmms[[i]]$time)), 
                         rep("Control", 
-                         times=length(clrlmms[[j]]$time))), .before = 1) %>% 
-    add_column(Time = c(clrlmms[[i]]$time, clrlmms[[j]]$time), .before = 1)
+                         times=length(clrlmms[[ctrl]]$time))), .before = 1) %>% 
+    add_column(Time = c(clrlmms[[i]]$time, clrlmms[[ctrl]]$time), .before = 1)
   
   other_frame <- col_bind %>% dplyr::select(-c("mouse_id")) %>%  
     pivot_longer(-c("Group", "Time"), values_to = "Value", names_to = "OTUs") %>% 
     mutate(OTUs = as.numeric(gsub("OTU", "", OTUs))) %>% 
     filter(OTUs %in% otu_fil)  
-  
-   p <- ggplot() +
+
+  p <- ggplot() +
         geom_line(data = super_frame, aes(x = Time, y = Value, color = Group)) + 
         geom_point(data = other_frame, aes(x = Time, y = Value, color = Group)) +
         facet_wrap(facets =  vars(OTUs)) + 
-        ggtitle(paste0("OTUs of Group Difference LMMSDE: ", clrlmms[[i]]$antibiotic," and ",clrlmms[[j]]$antibiotic ))  
+        ggtitle(paste0("OTUs of Group Difference LMMSDE: ", 
+                       clrlmms[[i]]$antibiotic," and ", 
+                       clrlmms[[ctrl]]$antibiotic ))  
   return(p)
 }
 
-control_analysis(mouse_results,i=5,j=6)
+control_analysis(mouse_results,i=5,ctrl=6)
+```
+```{r}
+plot_networks <- function(clrlmms, exp=5, ctrl=6, proportion=FALSE){ 
+  # provides network depiction of the correlation structure of the microbiome
+  
+  # INPUTS: 
+  exp=5 # - antibiotic index in question.
+  ctrl=6 # - control unit index. 
+  
+  # OUTPUTS: 
+  # two network plots the first being the control, second being antibiotic. 
+  
+  clrlmms <- mouse_results 
+  
+  #PC1 postive OTUs for antibiotic
+  OTU_PC1_POS <- which(data.frame(clrlmms[[exp]]$pca.res$loadings$X)>0, arr.ind = T) %>% 
+    data.frame() %>% dplyr::filter(col==1) %>% 
+    row.names() %>% gsub("\\..*","",.) %>% 
+    stri_unique() 
+  
+  #PC1 negative OTUs for antibiotic
+  OTU_PC1_NEG <- which(data.frame(clrlmms[[exp]]$pca.res$loadings$X)<0, arr.ind = T) %>% 
+    data.frame() %>% dplyr::filter(col==1) %>% 
+    row.names() %>% gsub("\\..*","",.) %>% 
+    stri_unique()
+  
+  #ALL PC1 OTUs for antibiotic
+  PC1_component <- c(OTU_PC1_POS, OTU_PC1_NEG) %>% unique()
+  
+  #df1 collects 
+  #recall that $data.gathered is the tidified version of clr lmms splines. 
+  df_1 <- clrlmms[[exp]]$data.gathered %>% group_by(feature) %>% 
+    mutate(value=scale(value)) %>% 
+    filter(feature %in% OTU_PC1_POS)
+  
+  plot1 <- ggplot(df_1, aes(x = time, y = value[,1], color = feature)) + geom_line() +
+    theme_bw() + ggtitle(paste0(clrlmms[[exp]]$antibiotic," PC1 positive lmms profiles")) + 
+    ylab("Feature expression") +
+    xlab("Time") +
+    theme(legend.position = "none")
+  
+  df2 <- clrlmms[[exp]]$data.gathered %>% group_by(feature) %>% 
+    mutate(value=scale(value)) %>% 
+    filter(feature %in% OTU_PC1_NEG)
+  
+  plot2 <- ggplot(df2, aes(x = time, y = value[,1], color = feature)) + geom_line() +
+    theme_bw() + ggtitle(paste0(clrlmms[[exp]]$antibiotic," PC1 negative lmms profiles")) + 
+    ylab("Feature expression") +
+    xlab("Time") +
+    theme(legend.position = "none")
+  
+  grid.arrange(plot1, plot2, ncol=2) %>% show()
+  
+  #CONTROL DATAFRAME
+  #dataframe to store information about PC1 component of control 
+  df_control <- list()
+  
+  #lmms unscaled and uncentred for control data for PC1 component OTUs 
+  df_control$clr <- clrlmms[[ctrl]]$modelled.data %>% data.frame() %>%                          
+    dplyr::select(all_of(PC1_component))
+  
+  df_control$anti <- clrlmms[[ctrl]]$antibiotic #acquires antibiotic
+  
+  #ANTIBIOTIC DATAFRAME
+  #dataframe to store information about PC1 component of control 
+  df_antibiotic <- list()
+  
+  #lmms unscaled or centred for antibiotic data for PC1 component OTUs 
+  df_antibiotic$clr <- clrlmms[[exp]]$modelled.data %>% data.frame() %>%
+    dplyr::select(all_of(PC1_component))
+  
+  df_antibiotic$anti <- clrlmms[[exp]]$antibiotic #acquires antibiotic 
+  
+  vector <- list(df_antibiotic, df_control)
+  
+  for (i in c(1,2)) {
+    set.seed(573313)
+    df<-vector[[i]]$clr
+    #correlation calculator 
+    a <- cor(df, y = NULL, use = "all.obs", method = "spearman") #%>% as.matrix()
+    a[abs(a) < 0.9] <- 0
+    diag(a) <- 0 # remove loops.
+    # create igraph object.
+    
+    if (proportion==TRUE) {
+      #something weird going on with the proportionality matrix, spca removes OTUs making it 
+      #hard to compare 
+      a<-clrlmms[[i]]$proportion$propr.distance[all_of(PC1_component),all_of(PC1_component)]
+      a <- as.matrix(a)
+      diag(a) <- 0
+      print(dim(a))
+    }
+    
+    #enlist all nodes of color to the antibiotic in question 
+    PC1_pos<-OTU_PC1_POS
+    PC1_neg<-OTU_PC1_NEG
+
+    g <- graph.adjacency(a, weighted=TRUE)
+    #delete.edges(g, which(abs(E(g)$weight)<0.97))
+    #print(E(g)$width)
+    # assign edge's width as a function of weights.
+    #E(g)$width <- 2#2*exp(abs(E(g)$weight))
+    #print(E(g)$weight)
+    alpha<- 0.4
+    E(g)$color<-ifelse(a>0, adjustcolor("red",alpha.f = alpha),
+                        adjustcolor("blue",alpha.f = alpha))
+    
+    V(g)[PC1_pos]$color <- adjustcolor("green",alpha.f = alpha)
+    V(g)[PC1_neg]$color <- adjustcolor("orange",alpha.f = alpha)
+    
+    wrap_strings <- function(vector_of_strings,width){
+      as.character(sapply(vector_of_strings, FUN=function(x){
+        paste(strwrap(x, width=width), collapse="\n")
+      }))
+    }
+    
+    # Apply the function to wrap the node labels
+    #V(g)$label = wrap_strings(V(g)$label, 12)
+    
+    ## Shrink font
+    V(g)$label.cex = 0.6
+    #print("vert count", vcount(g))  
+    
+    # Function to increase node separation (for explanatory details, see the link below)
+    # Source: http://stackoverflow.com/a/28722680/496488
+    layout.by.attr <- function(graph, wc, cluster.strength=1, layout=layout.auto) {  
+      g <- graph # create a lightweight copy of graph w/o the attributes.
+      E(g)$weight <- 10
+      
+      attr <- cbind(id=1:vcount(g), val=wc)
+      g <- g + vertices(unique(attr[,2])) + igraph::edges(unlist(t(attr)), weight=cluster.strength)
+      #print(vcount(graph))
+      #print(layout(g, weights=E(g)$weight))
+      l <- layout(g, weights=E(g)$weight)[1:(vcount(graph)),]
+      return(l)
+    }
+    
+    plot(g, edge.width = E(g)$width, 
+         main= vector[[i]]$anti,
+         mode = "undirected",
+         vertex.frame.color = NA, vertex.size = 15, 
+         layout=layout.by.attr(g, wc=4, cluster.strength = 3), 
+         edge.arrow.size = 0.0)
+  }
+  }
 ```
 
