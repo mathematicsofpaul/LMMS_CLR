@@ -20,7 +20,6 @@ library(timeOmics)
 library(lmms)
 library(stringi)
 library(purrr)
-library(gridExtra) #grid.arrange function
 
 #Change this line to /LMMS_CLR/Data/all 
 knitr::opts_knit$set(root.dir = '~/Desktop/LMMS_CLR/Data/all')
@@ -351,7 +350,7 @@ table(mouse_results[[6]]$lmms.output@modelsUsed)
 ```
 
 ```{r}
-control_analysis <- function(clrlmms,i=5,ctrl=6){ 
+control_analysis <- function(clrlmms, exp=5,ctrl=6){ 
   # Displays a plot of the respective splines for the OTUs of each control unit. 
   # Since there are many OTUs, the 20th to 30th OTUs are selected out of the filter. 
   # modify 20 to 30 index otu_fil <- otu_filtered$Molecule[20:30].  
@@ -365,16 +364,16 @@ control_analysis <- function(clrlmms,i=5,ctrl=6){
   # plot of clr LMMS splines with raw clr data points 
   
   #times for the differential analysis
-  df_times <- c(clrlmms[[i]]$time, clrlmms[[ctrl]]$time)
+  df_times <- c(clrlmms[[exp]]$time, clrlmms[[ctrl]]$time)
   
   #raw non-lmms raw clr data for each mouse
-  df_all_control_F<- rbind(clrlmms[[i]]$data.filtered, clrlmms[[ctrl]]$data.filtered) 
+  df_all_control_F<- rbind(clrlmms[[exp]]$data.filtered, clrlmms[[ctrl]]$data.filtered) 
   
   #data point names for each mouse and time point 
   df_de_names <- row.names(df_all_control_F)
   
   #assigns the labels for each experimental group  
-  df_group <- c(replicate(length(clrlmms[[i]]$time),"G1"), 
+  df_group <- c(replicate(length(clrlmms[[exp]]$time),"G1"), 
                 replicate(length(clrlmms[[ctrl]]$time),"G2"))   
   
   #lmmsDE analysis
@@ -382,10 +381,10 @@ control_analysis <- function(clrlmms,i=5,ctrl=6){
                         time=df_times,
                         sampleID=df_de_names,
                         group=df_group)
-  
+  #for debugging purposes
   lmmsDEtest2<-lmmsDEtest
   
-  myvars <- paste("G1", clrlmms[[i]]$time, sep=" ")
+  myvars <- paste("G1", clrlmms[[exp]]$time, sep=" ")
   myvars2 <- paste("G2",clrlmms[[ctrl]]$time, sep=" ") 
   
   otu_filtered <- lmmsDEtest2@DE %>% filter(adj.Group<0.05) %>% dplyr::select(Molecule) %>% 
@@ -407,13 +406,13 @@ control_analysis <- function(clrlmms,i=5,ctrl=6){
   super_frame <- rbind(group_1,group_2) 
   super_frame$Time <- rep(ult[[ctrl]]$time, times=2*length(otu_fil))
   
-  col_bind <- rbind(clrlmms[[i]]$data.filtered, clrlmms[[ctrl]]$data.filtered) %>% 
+  col_bind <- rbind(clrlmms[[exp]]$data.filtered, clrlmms[[ctrl]]$data.filtered) %>% 
     as_tibble(.,rownames = "mouse_id") %>% 
     add_column(Group = c(rep("Experimental", 
-                         times=length(clrlmms[[i]]$time)), 
+                         times=length(clrlmms[[exp]]$time)), 
                         rep("Control", 
                          times=length(clrlmms[[ctrl]]$time))), .before = 1) %>% 
-    add_column(Time = c(clrlmms[[i]]$time, clrlmms[[ctrl]]$time), .before = 1)
+    add_column(Time = c(clrlmms[[exp]]$time, clrlmms[[ctrl]]$time), .before = 1)
   
   other_frame <- col_bind %>% dplyr::select(-c("mouse_id")) %>%  
     pivot_longer(-c("Group", "Time"), values_to = "Value", names_to = "OTUs") %>% 
@@ -425,25 +424,27 @@ control_analysis <- function(clrlmms,i=5,ctrl=6){
         geom_point(data = other_frame, aes(x = Time, y = Value, color = Group)) +
         facet_wrap(facets =  vars(OTUs)) + 
         ggtitle(paste0("OTUs of Group Difference LMMSDE: ", 
-                       clrlmms[[i]]$antibiotic," and ", 
+                       clrlmms[[exp]]$antibiotic," and ", 
                        clrlmms[[ctrl]]$antibiotic ))  
   return(p)
 }
 
-control_analysis(mouse_results,i=5,ctrl=6)
+control_analysis(mouse_results, exp=5, ctrl=6)
 ```
 ```{r}
+
+library(igraph) #network plotting 
+library(gridExtra) #grid.arrange function
+
 plot_networks <- function(clrlmms, exp=5, ctrl=6, proportion=FALSE){ 
   # provides network depiction of the correlation structure of the microbiome
   
   # INPUTS: 
-  exp=5 # - antibiotic index in question.
-  ctrl=6 # - control unit index. 
+  #exp=5 # - antibiotic index in question.
+  #ctrl=6 # - control unit index. 
   
   # OUTPUTS: 
   # two network plots the first being the control, second being antibiotic. 
-  
-  clrlmms <- mouse_results 
   
   #PC1 postive OTUs for antibiotic
   OTU_PC1_POS <- which(data.frame(clrlmms[[exp]]$pca.res$loadings$X)>0, arr.ind = T) %>% 
@@ -484,6 +485,7 @@ plot_networks <- function(clrlmms, exp=5, ctrl=6, proportion=FALSE){
   
   grid.arrange(plot1, plot2, ncol=2) %>% show()
   
+  
   #CONTROL DATAFRAME
   #dataframe to store information about PC1 component of control 
   df_control <- list()
@@ -493,6 +495,7 @@ plot_networks <- function(clrlmms, exp=5, ctrl=6, proportion=FALSE){
     dplyr::select(all_of(PC1_component))
   
   df_control$anti <- clrlmms[[ctrl]]$antibiotic #acquires antibiotic
+  
   
   #ANTIBIOTIC DATAFRAME
   #dataframe to store information about PC1 component of control 
@@ -504,11 +507,14 @@ plot_networks <- function(clrlmms, exp=5, ctrl=6, proportion=FALSE){
   
   df_antibiotic$anti <- clrlmms[[exp]]$antibiotic #acquires antibiotic 
   
+  #stores dataframes in list antibiotic first, control second 
   vector <- list(df_antibiotic, df_control)
-  
+  par(mfrow=c(1,2))  
   for (i in c(1,2)) {
+    
     set.seed(573313)
     df<-vector[[i]]$clr
+    
     #correlation calculator 
     a <- cor(df, y = NULL, use = "all.obs", method = "spearman") #%>% as.matrix()
     a[abs(a) < 0.9] <- 0
@@ -529,11 +535,14 @@ plot_networks <- function(clrlmms, exp=5, ctrl=6, proportion=FALSE){
     PC1_neg<-OTU_PC1_NEG
 
     g <- graph.adjacency(a, weighted=TRUE)
+    
+    #
     #delete.edges(g, which(abs(E(g)$weight)<0.97))
     #print(E(g)$width)
     # assign edge's width as a function of weights.
     #E(g)$width <- 2#2*exp(abs(E(g)$weight))
     #print(E(g)$weight)
+    
     alpha<- 0.4
     E(g)$color<-ifelse(a>0, adjustcolor("red",alpha.f = alpha),
                         adjustcolor("blue",alpha.f = alpha))
@@ -571,10 +580,14 @@ plot_networks <- function(clrlmms, exp=5, ctrl=6, proportion=FALSE){
     plot(g, edge.width = E(g)$width, 
          main= vector[[i]]$anti,
          mode = "undirected",
-         vertex.frame.color = NA, vertex.size = 15, 
+         vertex.frame.color = NA, 
+         vertex.size = 15, 
+         vertex.label=NA, 
          layout=layout.by.attr(g, wc=4, cluster.strength = 3), 
          edge.arrow.size = 0.0)
   }
-  }
+}
+plot_networks(mouse_results)
+
 ```
 
