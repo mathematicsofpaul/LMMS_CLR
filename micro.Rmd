@@ -107,9 +107,12 @@ lowest_day <- function(variables, df) {
   # lowest day of continuous data
   
   full<-1:60 
+  
   daylist <- df %>% dplyr::filter(host_subject_id == variables) %>% 
     ungroup() %>% 
-    dplyr::select(day_of_experiment_numerical) %>% pull()
+    dplyr::select(day_of_experiment_numerical) %>% 
+    pull()
+  
   smallest <- setdiff(full,daylist) %>% min() - 1
   
   return(smallest)
@@ -173,13 +176,15 @@ df_taxa<-merge(taxa_clasification2, df_E,
 
 #add OTUs labels
 rownames(df_taxa) <- paste0("OTU", 1:nrow(df_taxa))
-df_taxa <- df_taxa %>% add_column(OTU = paste0("OTU", 1:nrow(df_taxa)), .before = "Row.names")
+df_taxa <- df_taxa %>% 
+  add_column(OTU = paste0("OTU", 1:nrow(df_taxa)), .before = "Row.names")
 ```
 ## LMMS Processing Function 
 The \texttt{multipurpose} function receives a list of mouse id's for one group of experiments and outputs a list containing various pieces of data (read comments for DATA). The most important result is \texttt{DATA$lmms.output} which is the lmms clr aggregated trajectories for the experimental group.  
 ```{r}
 #multipurpose function 
 multipurpose <- function(mouse_id_antibiotic, df_meta=df_meta, df_taxa=df_taxa, lowdays=lowdays) {
+  
   #raw count data
   datacounts <- list() 
   
@@ -189,9 +194,11 @@ multipurpose <- function(mouse_id_antibiotic, df_meta=df_meta, df_taxa=df_taxa, 
   
   for (mouse in mouse_id_antibiotic) {
     print(mouse)
+    
     #samples of mouse with respect to their day and "mouse" of the iteration 
     list_sample <- df_meta %>% filter(host_subject_id==mouse) %>% 
-      arrange(day_of_experiment_numerical) %>% ungroup() %>% dplyr::select(sample_id)
+      arrange(day_of_experiment_numerical) %>% ungroup() %>%
+      dplyr::select(sample_id)
     
     #gets the samples for mouse in loop 
     otumat<-df_taxa %>% dplyr::select(list_sample$sample_id) 
@@ -204,11 +211,15 @@ multipurpose <- function(mouse_id_antibiotic, df_meta=df_meta, df_taxa=df_taxa, 
     
     #deals strictly in samples not OTUs 
     meta_sample <- df_meta %>% ungroup() %>% 
-      dplyr::select(sample_id, phase_of_experiment, day_of_experiment_numerical) %>% 
-      filter(sample_id %in% list_sample$sample_id) %>% arrange(day_of_experiment_numerical) 
+      dplyr::select(sample_id, 
+                    phase_of_experiment, 
+                    day_of_experiment_numerical) %>% 
+      filter(sample_id %in% list_sample$sample_id) %>%
+      arrange(day_of_experiment_numerical) 
     
     #fixes the indices
-    meta_samplD2 <- meta_sample %>% dplyr::select(phase_of_experiment,day_of_experiment_numerical) %>%
+    meta_samplD2 <- meta_sample %>% 
+      dplyr::select(phase_of_experiment,day_of_experiment_numerical) %>%
       as.data.frame()
     rownames(meta_samplD2) <- meta_sample$sample_id
     
@@ -222,7 +233,8 @@ multipurpose <- function(mouse_id_antibiotic, df_meta=df_meta, df_taxa=df_taxa, 
     #plots the compositional data 
     print(plot_bar(physeq.top20, x="day_of_experiment_numerical", fill="Family") +
             facet_grid(~factor(phase_of_experiment, 
-                               levels=c('naive','antibiotic','wean off','colonised','carrier','control')), 
+                               levels=c('naive','antibiotic',
+                                        'wean off','colonised','carrier','control')), 
                        scales="free_x") + 
             ggtitle(paste(mouse, antibiotic ,sep=" ")) +
             xlab("Day of Experiment"))
@@ -295,8 +307,8 @@ multipurpose <- function(mouse_id_antibiotic, df_meta=df_meta, df_taxa=df_taxa, 
   DATA$antibiotic <- antibiotic #antibiotics
   
   #clr data
-  DATA$modelled.data <- modelled.data #lmms clr data of "3" mice from the same group 
-  DATA$data.gathered <- data.gathered #tidy of lmms clr data for plotting purposes 
+  DATA$modelled.data <- modelled.data #lmms CLR data of "3" mice from the same group 
+  DATA$data.gathered <- data.gathered #tidy of lmms CLR data for plotting purposes 
   DATA$data.filtered <- data.filtered #raw CLR data for 3 mice 
   
   DATA$pca.res <- pca.res #cluster assignment of OTUs 
@@ -320,7 +332,7 @@ ctrl<-lapply(mouse_control, multipurpose, df_meta=df_meta, df_taxa=df_taxa, lowd
 \texttt{control_data} is the aggregated LMMS clr trajectory of the 3 three mice within the control group. Change the index of the \texttt{mice_names} above for the \texttt{mouse_control} variable to get other LMMS trajectories for other antibiotics. Below is a print out of the control trajectories. 
 ```{r}
 ctrl[[1]]$antibiotic #gives the name of the experimental unit group  
-
+#put in plotting 
 control_data <- ctrl[[1]]$lmms.output@predSpline
 head(control_data) 
 ```
@@ -328,10 +340,15 @@ head(control_data)
 plotting_function <- function(clrlmms){
   # plots the clr splines from the main data source derived from the multipurpose function 
   
-  p <- ggplot(clrlmms$data.gathered, aes(x = time, y = value, color = feature)) + geom_line() +
-    theme_bw() + ggtitle(paste0(clrlmms$antibiotic," LMMS profiles"))  + ylab("Feature expression") +
+  p <- ggplot(clrlmms$data.gathered, 
+              aes(x = time, y = value, color = feature)) + 
+    geom_line() +
+    theme_bw() + ggtitle(paste0(clrlmms$antibiotic," LMMS profiles")) +
+    ylab("Feature expression") +
     xlab("Time") + theme(legend.position = "none")
-  return(p)} 
+  
+  return(p)
+  } 
 
 #plot of control lmms clr trajectories  
 plotting_function(ctrl[[1]])
@@ -348,9 +365,39 @@ mouse_results<-lapply(mice_names, multipurpose, df_meta=df_meta, df_taxa=df_taxa
 ```{r}
 table(mouse_results[[6]]$lmms.output@modelsUsed)
 ```
+## RAW Count data plotting function 
+```{r}
+plotting_groups <- function(clrlmms, exp=6){ 
+  
+  plt_lst <- vector('list', length(clrlmms[[exp]]$datacounts))
+  
+  for (mouse in 1:length(clrlmms[[exp]]$datacounts)) {
+    
+    modelled.data <- clrlmms[[exp]]$datacounts[[mouse]] 
+    row.names(modelled.data) <- c(1:(dim(modelled.data)[1])) 
+    
+    data.gathered <- modelled.data %>% as.data.frame() %>% 
+      tibble::rownames_to_column("time") %>%
+      mutate(time = as.numeric(time)) %>%
+      tidyr::pivot_longer(names_to="feature", values_to = 'value', -time)
+  
+    p <- ggplot(data.gathered, aes(x = time, y = value, color = feature)) + geom_line() +
+      theme_bw() + ggtitle(paste0("Mouse ", mouse , " ", clrlmms[[exp]]$antibiotic ," Count Profile"))+
+      ylab("Feature expression") +
+      xlab("Time") +
+    theme(legend.position = "none")
+    
+    plt_lst[[mouse]] <- p 
+  } 
+  
+  plt <- do.call(grid.arrange, plt_lst)
+  return(plt)
+} 
+plotting_groups(mouse_results, exp=3)
+```
 
 ```{r}
-control_analysis <- function(clrlmms, exp=5,ctrl=6){ 
+control_analysis <- function(clrlmms, exp=5, ctrl=6){ 
   # Displays a plot of the respective splines for the OTUs of each control unit. 
   # Since there are many OTUs, the 20th to 30th OTUs are selected out of the filter. 
   # modify 20 to 30 index otu_fil <- otu_filtered$Molecule[20:30].  
