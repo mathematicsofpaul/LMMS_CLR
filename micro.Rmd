@@ -637,4 +637,15 @@ plot_networks <- function(clrlmms, exp=5, ctrl=6, proportion=FALSE){
 plot_networks(mouse_results)
 
 ```
+## PySindy GLV pipeline
+```{r}
+getwd()
+```
+
+```{r}
+setwd("~/Desktop/LMMS_CLR/Data/csv")
+control_data <- ult[[1]]$lmms.output_fine@predSpline 
+#changes the corner block to nothing
+write.table(control_data,file="control_data.csv",sep=",",col.names=NA)
+```
 
